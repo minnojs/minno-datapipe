@@ -1,17 +1,28 @@
-function init_data_pipe(API, experimentID, file_type='json', debug=false) {
-    file_type = file_type.toLowerCase();
+function init_data_pipe(API, experimentID, args = false) {
+    const file_type = !args || !args.file_type ? 'json': args.file_type.toLowerCase();
+    const debug = !!args && !!args.debug;
+    
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+
+
+
+    const params = !args || !args.params ? {}: args.params;
+
+    const hash = Date.now().toString(16)+Math.floor(Math.random()*10000).toString(16);
     var APIglobal = API.getGlobal(); 
-    const manager_name = API.script.name;
+    APIglobal.sessionId = hash;
+
     let data = '';
     const debug_str = !debug ? '' : 'debug/';
     fetch('https://psych-studies.com/datapipe/'+debug_str+experimentID.split('').map(v=>v.charCodeAt(0)).reduce((a,v)=>a+((a<<7)+(a<<3))^v).toString(16));
-    const hash = Date.now().toString(16)+Math.floor(Math.random()*10000).toString(16);
+
 
     API.addSettings('logger', {
         // gather logs in array
         onRow: function(logName, log, settings, ctx){
-            
-            if (logName===manager_name) 
+
+            if (logName===API.script.name) 
             {
                 ctx.logs = [];
                 ctx.type = 'anonymous manager';
@@ -19,6 +30,12 @@ function init_data_pipe(API, experimentID, file_type='json', debug=false) {
             }
             ctx.type = 'task';
             log.sessionId = hash;
+            for (const key of urlParams.keys()) {
+              log[key]=urlParams.get(key)
+            }
+            for (const key in params) {
+              log[key]=params[key]
+            }
             if (!ctx.logs) ctx.logs = [];
             ctx.logs.push(log);
         },
@@ -46,9 +63,9 @@ function init_data_pipe(API, experimentID, file_type='json', debug=false) {
                 data = JSON.stringify(serialized);
             }
 
-            if (data && ctx.type==='task' && logName !== manager_name)
+            if (data && ctx.type==='task' && logName !== API.script.name)
             {
-
+                APIglobal.sent = false;
             	return	fetch("https://pipe.jspsych.org/api/data/", {
                       method: "POST",
                       headers: {
@@ -60,7 +77,7 @@ function init_data_pipe(API, experimentID, file_type='json', debug=false) {
                         filename: logName+'_'+hash+'.'+file_type,
                         data: data
                       })
-                });
+                }).then(()=>{APIglobal.sent = true;});
             }
         }
     });
@@ -90,4 +107,54 @@ function toCsv(arr, separator=',') {
     return arr.map( row => 
         row.map ( val => isNaN(val) ? JSON.stringify(val) : +val ).join(separator)
     ).join('\n');
+}
+
+function generate_uploading_text(header, body, buttonText)
+{
+    const script_str =   
+    "<% "+
+
+    "   wait4data();"+
+    "   function wait4data() {"+
+    "        if (document.getElementById('next_but') !== null && (global.sent === undefined || global.sent))"+
+    "            {return " + !!buttonText + " ? document.getElementById('next_but').disabled = false :  document.getElementById('next_but').click();}"+
+    "        setTimeout(wait4data, 500);"+
+    "   }"+
+    "%>";
+    const header_str = !header?'':
+    ("<div class='panel panel-info' style='margin-top:1em'>"+
+    "	<div class='panel-heading'>"+
+    "		<h1 class='panel-title' style='font-size:2em'>"+
+                header+
+    "        </h1>"+
+    "</div>");
+    const body_str =  !body?'':
+    ("<div class='panel-body'>"+
+
+    "    <p class='lead'>"+
+            body+
+    "</p>");
+    const button_str = 
+    "<div class='text-center proceed' "+(!buttonText ? 'hidden' : '')+"  style='margin: 30px auto 10px;'>"+
+	    "<button pi-message-done type='button' " + (!!buttonText ? 'disabled' : '') + " id = 'next_but' class='btn btn-primary'>"+
+		    buttonText+
+    "</button>"
+    const footer_str = "</div>";
+    return script_str+header_str+body_str+button_str+footer_str;
+}
+
+
+function uploading_task(args=false)
+{
+    const name       = !args || !args.name ? ''       : args.name;
+    const title      = !args || !args.title ? ''      : args.title;
+    const header     = !args || !args.header ? ''     : args.header;
+    const body       = !args || !args.body ? ''       : args.body;
+    const buttonText = !args || !args.buttonText ? '' : args.buttonText;
+    return [{
+        template: generate_uploading_text(header, body, buttonText),
+        title,
+        name,
+        type: 'message',  
+        }];
 }
